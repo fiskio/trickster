@@ -5,26 +5,32 @@ from torch.distributions import Normal
 
 class Trickster(nn.Module):
 
-    def __init__(self, input_size, n_samples):
+    def __init__(self, input_size, hidden_size, n_samples):
         super().__init__()
         self.input_size = input_size
         self.n_samples = n_samples
 
-        self.predictor = nn.Linear(input_size, 1)
-        self.confident = nn.Linear(input_size, 1)
+        self.linear = nn.Linear(input_size, hidden_size)
+        self.predictor = nn.Linear(hidden_size, 1)
+        self.confident = nn.Linear(hidden_size, 1)
 
-    def forward(self, inputs, targets):
+    def forward(self, inputs, targets=None):
+
+        # mlp
+        hidden = torch.relu(self.linear(inputs))
 
         # predicted mean
-        predictions = self.predictor(inputs)
+        predictions = self.predictor(hidden)
 
         # proxy to std
-        confidences = torch.sigmoid(self.confident(inputs))
-        print('c', confidences)
+        confidences = torch.sigmoid(self.confident(hidden))
+        # print('c', confidences.item())
 
         # interpolated mean (w/ hints)
-        inter_preds = confidences * predictions + (1 - confidences) * targets
-        #inter_preds = predictions
+        if self.training:
+            inter_preds = confidences * predictions + (1 - confidences) * targets
+        else:
+            inter_preds = predictions
 
         # std is a function of confidence
         # c ~ 0: std ~ inf
@@ -72,3 +78,17 @@ def reparameterize(mu, std, n):
     avg_samples = samples.sum(0) / n
 
     return avg_samples
+
+
+class Vanilla(nn.Module):
+
+    def __init__(self, input_size, hidden_size):
+        super().__init__()
+        self.model = nn.Sequential(nn.Linear(input_size, hidden_size),
+                                   nn.Tanh(),
+                                   nn.Linear(hidden_size, input_size))
+
+    def forward(self, x, y=None):
+        mean = self.model(x)
+        std = torch.zeros(mean.size())
+        return mean, std
